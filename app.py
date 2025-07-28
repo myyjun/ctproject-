@@ -18,7 +18,7 @@ with col1:
         url = 'https://www.youtube.com/watch?v=XyEOEBsa8I4'
         st.info('Content..')
         st.video(url)
-    with st.expander('Content #2...'):
+    with st.expander('비버 첼린지 1. 짐옮기기'):
         st.write(html, height=600, unsafe_allow_html=True)
     with st.expander('Content #3...'):
         st.write(html, height=600, unsafe_allow_html=True)
