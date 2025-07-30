@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>짐 옮기기2</title>
+  <style>
+    body { font-family: 'Arial'; padding: 20px; line-height: 1.6; }
+    h1 { color: darkblue; }
+    .box { border: 2px solid #999; padding: 15px; margin-top: 15px; background: #f9f9f9; }
+    .label { font-weight: bold; }
+    .timer { font-size: 20px; margin-top: 10px; color: darkred; }
+    #popup {
+      display: none; position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%); background: white;
+      border: 2px solid black; padding: 20px; z-index: 999;
+    }
+  </style>
+</head>
+<body>
+
+<h1>짐 옮기기2</h1>
+<p><strong>대상 및 교과:</strong> 특수교육대상학생 고 1</p>
+
+<div class="box">
+  <p class="label">지문:</p>
+  <p>
+    1층에는 짐 10개가 쌓여 있고, 이 짐들을 각 층에 하나씩 정확히 배달해야 한다.<br>
+    비버는 로켓을 타고 짐을 옮길 수 있으며, 연료를 사용해 위층으로 점프할 수 있다.
+  </p>
+  <p class="label">규칙:</p>
+  <ul>
+    <li>2칸의 연료 → 1층 이동</li>
+    <li>3칸의 연료 → 3층 이동</li>
+    <li>4칸의 연료 → 5층 이동</li>
+  </ul>
+</div>
+
+<div class="box">
+  <label>시작 층: 1 (고정)</label><br>
+  <label for="targetFloor">도착 층 선택:</label>
+  <select id="targetFloor">
+    <option value="2">2층</option>
+    <option value="3">3층</option>
+    <option value="4">4층</option>
+    <option value="5">5층</option>
+    <option value="6">6층</option>
+    <option value="7">7층</option>
+    <option value="8">8층</option>
+    <option value="9">9층</option>
+    <option value="10" selected>10층</option>
+  </select><br><br>
+
+  <label>시간 설정:</label>
+  <select id="timeSelect">
+    <option value="30">30초</option>
+    <option value="60">1분</option>
+    <option value="90">1분 30초</option>
+    <option value="120">2분</option>
+  </select>
+  <button onclick="startProblem()">문제 풀기</button>
+
+  <p class="timer" id="countdown"></p>
+</div>
+
+<div class="box">
+  <label>총 연료 소모량을 입력하세요:</label>
+  <input type="number" id="userAnswer">
+  <button onclick="checkAnswer()">제출</button>
+  <p id="result"></p>
+</div>
+
+<div id="popup">
+  <p>⏰ 시간이 완료되었습니다!</p>
+  <button onclick="restart()">다시 도전하기</button>
+</div>
+
+<script>
+let timer;
+let timeLeft;
+
+function startProblem() {
+  clearInterval(timer);
+  timeLeft = parseInt(document.getElementById('timeSelect').value);
+  document.getElementById('countdown').innerText = `남은 시간: ${timeLeft}초`;
+
+  timer = setInterval(() => {
+    timeLeft--;
+    document.getElementById('countdown').innerText = `남은 시간: ${timeLeft}초`;
+    if (timeLeft <= 0) {
+      clearInterval(timer);
+      document.getElementById('popup').style.display = 'block';
+    }
+  }, 1000);
+}
+
+function checkAnswer() {
+  const user = parseInt(document.getElementById('userAnswer').value);
+  const correct = calculateCorrectAnswer();
+  if (user === correct) {
+    document.getElementById('result').innerText = '🎉 정답입니다!';
+  } else {
+    document.getElementById('result').innerText = `❌ 오답입니다. 정답은 ${correct}입니다.`;
+  }
+}
+
+function calculateCorrectAnswer() {
+  const fuel1 = 2; // 1층 이동
+  const fuel3 = 3; // 3층 이동
+  const fuel5 = 4; // 5층 이동
+
+  const target = parseInt(document.getElementById('targetFloor').value);
+
+  const dp = Array(target + 1).fill(Infinity);
+  dp[1] = 0; // 1층은 연료 0
+
+  for (let i = 2; i <= target; i++) {
+    if (i - 1 >= 1) dp[i] = Math.min(dp[i], dp[i - 1] + fuel1);
+    if (i - 3 >= 1) dp[i] = Math.min(dp[i], dp[i - 3] + fuel3);
+    if (i - 5 >= 1) dp[i] = Math.min(dp[i], dp[i - 5] + fuel5);
+  }
+
+  let total = 0;
+  for (let i = 2; i <= target; i++) {
+    total += dp[i];
+  }
+
+  return total;
+}
+
+function restart() {
+  document.getElementById('popup').style.display = 'none';
+  document.getElementById('result').innerText = '';
+  document.getElementById('userAnswer').value = '';
+  document.getElementById('countdown').innerText = '';
+}
+</script>
+
+</body>
+</html>
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>💡 짐 옮기기2 - CT 사고 과정 학습</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; line-height: 1.6; }
+    h1 { color: darkblue; }
+    .tabs { margin-bottom: 10px; }
+    .tabs button { padding: 8px 12px; margin-right: 5px; border: none; background: #eee; cursor: pointer; }
+    .tabs button.active { background: #ccc; }
+    .tab { display: none; }
+    .tab.active { display: block; }
+    .box { border: 2px solid #999; padding: 15px; margin-top: 15px; background: #f9f9f9; }
+    .label { font-weight: bold; }
+    input, select { margin-top: 5px; }
+    .ctrl { margin: 10px 0; }
+    #popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border: 2px solid black; padding: 20px; z-index: 999; }
+  </style>
+</head>
+<body>
+
+<h1>짐 옮기기2 - CT 사고 과정 학습</h1>
+<p><strong>대상 및 교과:</strong> 특수교육대상학생 고1</p>
+
+<div class="tabs">
+  <button class="active" onclick="openTab('tab1')">1. 문제 분해</button>
+  <button onclick="openTab('tab2')">2. 패턴 찾기</button>
+  <button onclick="openTab('tab3')">3. 알고리즘 &amp; 시뮬레이션</button>
+</div>
+
+<!-- 1. 문제 분해 -->
+<div id="tab1" class="tab active">
+  <div class="box">
+    <p class="label">지문 입력</p>
+    <div class="ctrl">
+      <label for="pd_boxes">총 짐 개수:</label>
+      <input type="number" id="pd_boxes" value="10" />
+    </div>
+    <div class="ctrl">
+      <label for="pd_fuel1">1층 이동 연료:</label>
+      <input type="number" id="pd_fuel1" value="2" />
+    </div>
+    <div class="ctrl">
+      <label for="pd_fuel3">3층 이동 연료:</label>
+      <input type="number" id="pd_fuel3" value="3" />
+    </div>
+    <div class="ctrl">
+      <label for="pd_fuel5">5층 이동 연료:</label>
+      <input type="number" id="pd_fuel5" value="4" />
+    </div>
+    <button onclick="generatePrompt()">문제 문장 생성</button>
+    <p id="generatedPrompt"></p>
+  </div>
+</div>
+
+<!-- 2. 패턴 찾기 -->
+<div id="tab2" class="tab">
+  <div class="box">
+    <p class="label">패턴 찾기</p>
+    <p>입력된 연료값으로 각 층까지 최소 연료량을 계산해보세요.</p>
+    <button onclick="showPattern()">패턴 계산</button>
+    <ul id="patternList"></ul>
+  </div>
+</div>
+
+<!-- 3. 알고리즘 & 시뮬레이션 -->
+<div id="tab3" class="tab">
+  <div class="box">
+    <p class="label">최종 계산</p>
+    <button onclick="calculateTotal()">총 연료 계산</button>
+    <p id="totalResult"></p>
+  </div>
+</div>
+
+<!-- 팝업 -->
+<div id="popup">
+  <p>⏰ 시간이 완료되었습니다!</p>
+  <button onclick="restart()">다시 도전하기</button>
+</div>
+
+<script>
+function openTab(id) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+}
+
+function generatePrompt() {
+  const b = parseInt(document.getElementById('pd_boxes').value);
+  const f1 = parseInt(document.getElementById('pd_fuel1').value);
+  const f3 = parseInt(document.getElementById('pd_fuel3').value);
+  const f5 = parseInt(document.getElementById('pd_fuel5').value);
+  document.getElementById('generatedPrompt').innerText = 
+    `총 ${b}개의 짐을 1층에서 1~${b}층까지 배달할 때,`
+    + ` 연료(${f1},${f3},${f5})를 이용해 최소 연료는?`;
+}
+
+function showPattern() {
+  const f1 = parseInt(document.getElementById('pd_fuel1').value);
+  const f3 = parseInt(document.getElementById('pd_fuel3').value);
+  const f5 = parseInt(document.getElementById('pd_fuel5').value);
+  const b = parseInt(document.getElementById('pd_boxes').value);
+  const list = document.getElementById('patternList');
+  list.innerHTML = '';
+  const dp = Array(b+1).fill(Infinity);
+  dp[1] = 0;
+  for (let i = 2; i <= b; i++) {
+    dp[i] = Math.min(
+      dp[i-1] + f1,
+      i-3 >= 1 ? dp[i-3] + f3 : Infinity,
+      i-5 >= 1 ? dp[i-5] + f5 : Infinity
+    );
+    const li = document.createElement('li');
+    li.innerText = `${i}층까지 최소 연료: ${dp[i]}`;
+    list.appendChild(li);
+  }
+}
+
+function calculateTotal() {
+  const f1 = parseInt(document.getElementById('pd_fuel1').value);
+  const f3 = parseInt(document.getElementById('pd_fuel3').value);
+  const f5 = parseInt(document.getElementById('pd_fuel5').value);
+  const b = parseInt(document.getElementById('pd_boxes').value);
+  const dp = Array(b+1).fill(Infinity);
+  dp[1] = 0;
+  for (let i = 2; i <= b; i++) {
+    dp[i] = Math.min(
+      dp[i-1] + f1,
+      i-3 >= 1 ? dp[i-3] + f3 : Infinity,
+      i-5 >= 1 ? dp[i-5] + f5 : Infinity
+    );
+  }
+  const total = dp.slice(2).reduce((sum, v) => sum + v, 0);
+  document.getElementById('totalResult').innerText = `총 최소 연료: ${total}`;
+}
+
+function restart() { location.reload(); }
+</script>
+
+</body>
+</html>
