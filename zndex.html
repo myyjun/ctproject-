@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>룰 기반 강화 타이밍 계산</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+    h1 { text-align: center; }
+    label { display: block; margin-top: 15px; font-weight: bold; }
+    input, button, table, textarea { width: 100%; box-sizing: border-box; margin-top: 5px; }
+    table { border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+    .small-btn { width: auto; padding: 4px 8px; margin: 5px 0; }
+
+    /* 피드백 그룹을 한 줄의 블록으로 정리 */
+    #feedbackGroup {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    #feedbackGroup .inline {
+      flex: 1;
+      text-align: center;
+      font-size: 0.9em;
+      padding: 6px 4px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    #feedbackGroup .inline > div:first-child {
+      margin-bottom: 4px;
+      font-weight: bold;
+    }
+    #feedbackGroup .inline label {
+      display: inline-block;
+      margin: 0 4px;
+    }
+
+    #output { margin-top: 20px; font-size: 1.1em; color: #006600; }
+  </style>
+</head>
+<body>
+  <h1>룰 기반 강화 타이밍 계산</h1>
+
+  <!-- 1교시 추천 강화 시점 -->
+  <label for="p1times">이전 교시 추천 강화 시점 (분 단위, 쉼표 구분)</label>
+  <input id="p1times" type="text" value="15,30,45" />
+
+  <!-- 2교시 강화 효과 피드백 -->
+  <label>이전 교시 강화 효과 피드백</label>
+  <button id="loadFeedbackBtn" class="small-btn">피드백 입력란 생성</button>
+  <div id="feedbackGroup"></div>
+
+  <!-- 2교시 문제행동 이벤트 -->
+  <label>이전 교시 문제행동 이벤트</label>
+  <table id="eventsTable">
+    <thead>
+      <tr><th>시간(분)</th><th>강도</th><th>액션</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <button id="addEventBtn" class="small-btn">이벤트 추가</button>
+
+  <!-- 계산 버튼 -->
+  <button id="computeBtn" disabled>다음 교시 강화 시점 계산</button>
+
+  <div id="output"></div>
+
+  <script>
+    const Δ = 5;              // 구간 길이
+    const FEEDBACK_THRESHOLD = 0.5;
+
+    // 동적 이벤트 테이블 추가
+    const eventsBody = document.querySelector('#eventsTable tbody');
+    document.getElementById('addEventBtn').addEventListener('click', () => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="number" class="evt-time" min="0" max="50" placeholder="예: 10" /></td>
+        <td><input type="number" class="evt-int" min="0" max="3" placeholder="0~3" /></td>
+        <td><button class="remove-btn small-btn">삭제</button></td>
+      `;
+      eventsBody.appendChild(tr);
+      tr.querySelector('.remove-btn')
+        .addEventListener('click', () => tr.remove());
+    });
+    // 초기 한 줄 추가
+    document.getElementById('addEventBtn').click();
+
+    // 피드백 입력란 생성
+    const feedbackGroup = document.getElementById('feedbackGroup');
+    const computeBtn    = document.getElementById('computeBtn');
+    document.getElementById('loadFeedbackBtn').addEventListener('click', () => {
+      feedbackGroup.innerHTML = '';
+      const p1 = document.getElementById('p1times').value
+        .split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
+      p1.forEach(t => {
+        const div = document.createElement('div');
+        div.className = 'inline';
+        div.innerHTML = `
+          <div>${t}분 후 감소?</div>
+          <label><input type="radio" name="fb_${t}" value="true" checked /> 예</label>
+          <label><input type="radio" name="fb_${t}" value="false" /> 아니오</label>
+        `;
+        feedbackGroup.appendChild(div);
+      });
+      computeBtn.disabled = false;
+    });
+
+    // 구간별 점수 배열 생성
+    function bucketizeEvents(events, delta, nBuckets) {
+      const buckets = Array(nBuckets).fill(0);
+      events.forEach(({ t, y }) => {
+        const idx = Math.min(nBuckets - 1, Math.floor(t / delta));
+        buckets[idx] = Math.max(buckets[idx], y);
+      });
+      return buckets;
+    }
+
+    // 상위 K구간 선택 함수
+    function computeReinforcementTimes(scores, K, delta) {
+      const idxs = scores.map((s, i) => i)
+                         .sort((a,b) => scores[b] - scores[a] || a - b);
+      return idxs.slice(0, K)
+                 .map(i => i * delta)
+                 .sort((a, b) => a - b);
+    }
+
+    // 계산 버튼 핸들러
+    document.getElementById('computeBtn').addEventListener('click', () => {
+      const out = document.getElementById('output');
+      out.textContent = '';
+
+      // 1) 1교시 입력
+      const p1 = document.getElementById('p1times').value
+        .split(',').map(x => parseInt(x,10)).filter(x => !isNaN(x));
+      const K_prev = p1.length;
+
+      // 2) 피드백 수집
+      const feedback = p1.map(t => {
+        const radios = document.getElementsByName(`fb_${t}`);
+        let dec = true;
+        radios.forEach(r => { if (r.checked) dec = r.value==='true'; });
+        return { t, decreased: dec };
+      });
+      const successCount = feedback.filter(f => f.decreased).length;
+      const successRate  = successCount / K_prev;
+
+      // 3) K 조정
+      let K_new = K_prev;
+      if (successRate < FEEDBACK_THRESHOLD) {
+        K_new = K_prev + 1;
+      }
+
+      // 4) 이벤트 수집
+      const events = [];
+      document.querySelectorAll('.evt-time').forEach((inp, i) => {
+        const t = parseInt(inp.value,10);
+        const y = parseInt(document.querySelectorAll('.evt-int')[i].value,10);
+        if (!isNaN(t) && !isNaN(y)) events.push({ t, y });
+      });
+
+      // 5) 구간별 점수 배열
+      const nBuckets = Math.floor(50 / Δ);
+      const scores = bucketizeEvents(events, Δ, nBuckets);
+
+      // 6) 강화 시점 계산
+      const nextTimes = computeReinforcementTimes(scores, K_new, Δ);
+
+      // 7) 결과 출력
+      out.innerHTML = `
+        <p>이전 강화 횟수: ${K_prev}, 성공률: ${(successRate*100).toFixed(0)}%</p>
+        <p>새 강화 횟수: ${K_new}</p>
+        <p>다음 교시 추천 강화 시점: [${nextTimes.join(', ')}] 분</p>
+      `;
+    });
+  </script>
+</body>
+</html>

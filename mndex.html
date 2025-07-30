@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI 강화 타이밍 예측</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+    h1 { text-align: center; }
+    label { display: block; margin-top: 15px; font-weight: bold; }
+    input, button, select { width: 100%; box-sizing: border-box; padding: 6px; margin-top: 5px; }
+    button { margin-top: 10px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+    #output { margin-top: 20px; font-size: 1.1em; color: #006600; white-space: pre-wrap; }
+    .small-btn { width: auto; padding: 4px 8px; margin: 0 4px; }
+
+    /* —— 여기부터 피드백 박스 스타일 —— */
+    #feedbackGroup {
+      display: flex;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      gap: 8px;
+    }
+    .feedback-item {
+      flex: 0 0 calc(33.33% - 8px);
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 10px;
+      box-sizing: border-box;
+      text-align: center;
+    }
+    .feedback-item .question {
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+    .feedback-item .options label {
+      display: inline-block;
+      margin: 0 6px;
+      cursor: pointer;
+    }
+    /* —— 피드백 박스 스타일 끝 —— */
+  </style>
+</head>
+<body>
+  <h1>AI 강화 타이밍 예측</h1>
+
+  <!-- 1교시 추천 강화 시점 -->
+  <label for="p1times">이전 교시 추천 강화 시점 (분 단위, 쉼표 구분)</label>
+  <input id="p1times" type="text" placeholder="예: 15,30,45" value="15,30,45" />
+
+  <!-- 2교시 강화 효과 피드백 -->
+  <label>이전 교시 강화 효과 피드백</label>
+  <button id="loadFeedbackBtn" class="small-btn">피드백 입력란 생성</button>
+  <div id="feedbackGroup"></div>
+
+  <!-- 2교시 문제행동 이벤트 -->
+  <label>이전 교시 문제행동 이벤트</label>
+  <table id="eventsTable">
+    <thead>
+      <tr><th>시간(분)</th><th>강도 (0~3)</th><th>액션</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <button id="addEventBtn" class="small-btn">이벤트 추가</button>
+
+  <!-- 예측 버튼 & 결과 -->
+  <button id="predictBtn" disabled>다음 교시 AI 예측 실행</button>
+  <div id="output"></div>
+
+  <script>
+    // --- 유틸 함수: 이벤트를 Δ 단위 버킷으로 집계 ---
+    function bucketizeEvents(events, delta, nBuckets) {
+      const scores = Array(nBuckets).fill(0);
+      events.forEach(({ t, y }) => {
+        const idx = Math.min(Math.floor(t / delta), nBuckets - 1);
+        scores[idx] += y;
+      });
+      return scores;
+    }
+
+    // 1) 동적 이벤트 테이블 생성 로직
+    const eventsTableBody = document.querySelector('#eventsTable tbody');
+    document.getElementById('addEventBtn').addEventListener('click', () => {
+      const row = document.createElement('tr');
+      row.innerHTML = `
+        <td><input type="number" class="evt-time" placeholder="예: 10" /></td>
+        <td><input type="number" class="evt-int" placeholder="예: 2" min="0" max="3" /></td>
+        <td><button class="remove-btn small-btn">삭제</button></td>
+      `;
+      eventsTableBody.appendChild(row);
+      // 삭제 버튼 핸들러
+      row.querySelector('.remove-btn').addEventListener('click', () => row.remove());
+    });
+    // 페이지 로드 시 초기 한 줄 추가
+    document.getElementById('addEventBtn').click();
+
+    // 2) 동적 피드백 입력란 생성
+    const feedbackGroup = document.getElementById('feedbackGroup');
+    const predictBtn = document.getElementById('predictBtn');
+    document.getElementById('loadFeedbackBtn').addEventListener('click', () => {
+      feedbackGroup.innerHTML = '';
+      // 1교시 시점 파싱
+      const times = document.getElementById('p1times').value
+        .split(',')
+        .map(x => parseInt(x.trim(), 10))
+        .filter(x => !isNaN(x));
+      // 카드 형태로 생성
+      times.forEach(t => {
+        const card = document.createElement('div');
+        card.classList.add('feedback-item');
+        card.innerHTML = `
+          <div class="question">${t}분 후 감소?</div>
+          <div class="options">
+            <label><input type="radio" name="fb_${t}" value="true" checked /> 예</label>
+            <label><input type="radio" name="fb_${t}" value="false" /> 아니오</label>
+          </div>
+        `;
+        feedbackGroup.appendChild(card);
+      });
+      predictBtn.disabled = false;
+    });
+
+    // 3) AI 예측 호출 함수
+    async function predictReinforcement(p1, events, feedback) {
+      const prompt = `
+You are an expert behavior analyst.
+Period1 suggested reinforcement times: ${JSON.stringify(p1)}.
+Period2 events (time,intensity): ${JSON.stringify(events)}.
+Period2 reinforcement outcomes (time,decreased): ${JSON.stringify(feedback)}.
+Based on these, recommend 3 next session reinforcement times in minutes as a JSON array.
+`;
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer YOUR_OPENAI_API_KEY'
+        },
+        body: JSON.stringify({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            { role: 'system', content: 'You are an expert behavior analyst.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.2,
+          max_tokens: 100
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `HTTP ${res.status}`);
+      }
+      const j = await res.json();
+      return JSON.parse(j.choices[0].message.content.trim());
+    }
+
+    // 4) 예측 버튼 핸들러: 피드백·이벤트 수집 및 결과 표시
+    document.getElementById('predictBtn').addEventListener('click', async () => {
+      const out = document.getElementById('output');
+      out.textContent = '예측 중입니다…';
+      try {
+        // (1) 1교시 값
+        const p1 = document.getElementById('p1times').value
+          .split(',').map(x => parseInt(x.trim(), 10))
+          .filter(x => !isNaN(x));
+        const K_prev = p1.length;
+
+        // (2) 피드백 수집
+        const feedback = p1.map(t => {
+          const radios = document.getElementsByName(`fb_${t}`);
+          let decreased = true;
+          radios.forEach(r => { if (r.checked) decreased = r.value === 'true'; });
+          return { t, decreased };
+        });
+        const successCount = feedback.filter(f => f.decreased).length;
+        const successRate  = successCount / K_prev;
+        const FEEDBACK_THRESHOLD = 0.5;
+        let K_new = K_prev;
+        if (successRate < FEEDBACK_THRESHOLD) K_new++;
+
+        // (3) 이벤트 수집
+        const events = [];
+        document.querySelectorAll('.evt-time').forEach((inp, i) => {
+          const t = parseInt(inp.value, 10);
+          const y = parseInt(document.querySelectorAll('.evt-int')[i].value, 10);
+          if (!isNaN(t) && !isNaN(y)) events.push({ t, y });
+        });
+
+        // (4) 버킷화 예시
+        const Δ = 5;
+        const nBuckets = Math.floor(50 / Δ);
+        const scores = bucketizeEvents(events, Δ, nBuckets);
+
+        // (5) AI 예측
+        const nextTimes = await predictReinforcement(p1, events, feedback);
+
+        // 결과 출력
+        out.textContent = `▶ 다음 추천 강화 시점:\n[${nextTimes.join(', ')}] 분\n\n` +
+                          `• 이전 강화 횟수: ${K_prev} → 조정 후: ${K_new}\n` +
+                          `• 성공률: ${(successRate*100).toFixed(1)}%\n` +
+                          `• 구간별 점수: ${JSON.stringify(scores)}`;
+      } catch (e) {
+        out.textContent = '예측 실패: ' + e.message;
+        console.error(e);
+      }
+    });
+  </script>
+</body>
+</html>

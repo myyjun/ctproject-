@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>강화 타이밍 자동화</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    h1 { color: #333; }
+    .instructions p { margin: 4px 0; }
+    .chart-container { 
+      width: 100%; 
+      max-width: 800px; 
+      margin: auto; 
+      position: relative; /* overlay 위치 기준 */
+    }
+    .dataset-legend { text-align: center; margin: 10px 0; }
+    .dataset-legend .box { display: inline-block; width: 12px; height: 12px; margin-right: 4px; vertical-align: middle; }
+    .dataset-legend .gray { background-color: gray; }
+    .dataset-legend .blue { background-color: blue; }
+    #behaviorTable { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    #behaviorTable th, #behaviorTable td { border: 1px solid #ccc; text-align: center; padding: 6px; }
+    #submitBtn { margin-top: 12px; padding: 8px 16px; }
+
+    /* 오버레이 */
+    .overlay {
+      display: none;
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      font-weight: bold;
+      z-index: 10;
+    }
+    .overlay div { margin-bottom: 6px; }
+    .overlay button { margin-right: 6px; padding: 4px 8px; font-size: 0.9em; }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-dragdata@2.0.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.1.1"></script>
+  <script>
+    Chart.register(ChartAnnotation, ChartDragData);
+  </script>
+</head>
+<body>
+  <h1>강화 타이밍 자동화</h1>
+  <div class="instructions">
+    <p><strong>대상 및 교과:</strong> 고등학교 특수교육 대상 학생</p>
+    <p><strong>문제행동 입력:</strong> 그래프 클릭·드래그 또는 아래 표에서 선택</p>
+    <p><strong>강화 타이밍 안내:</strong> 제안하신 공식 기반 강화 시점 계산</p>
+    <p><strong>결과 기록 및 피드백:</strong> 강화 후 행동 변화 여부를 저장</p>
+  </div>
+
+  <div class="dataset-legend">
+    <span><span class="box gray"></span>이전 기록</span>
+    <span style="margin-left:20px"><span class="box blue"></span>현재 기록</span>
+  </div>
+
+  <div class="chart-container">
+    <canvas id="behaviorChart" height="200"></canvas>
+    <div id="overlay" class="overlay">
+      <div id="overlayRec"></div>
+      <div id="overlayTimer"></div>
+      <button id="overlaySkip">시간 스킵</button>
+      <button id="overlayClose" style="display:none;">창 끄기</button>
+    </div>
+  </div>
+
+  <table id="behaviorTable"></table>
+  <button id="submitBtn">입력 완료</button>
+
+  <script>
+    // ——— 설정 부분 ———
+    const K = 3;        // 강화 횟수
+    const Δ = 5;        // 구간 길이 (분)
+    // —————————————————
+
+    const colorMap = { 0:'blue',1:'yellow',2:'orange',3:'red' };
+    const labelMap = {
+      0: '0 무행동',
+      1: '1 경미한 방해행동',
+      2: '2 방해행동',
+      3: '3 타인에게 피해가 가는 방해행동'
+    };
+
+    const times = Array.from({length:11},(_,i)=>i*Δ);
+    const table = document.getElementById('behaviorTable');
+    const submitBtn = document.getElementById('submitBtn');
+    const prev = JSON.parse(localStorage.getItem('previousBehavior')||'null')||null;
+
+    const overlay      = document.getElementById('overlay');
+    const overlayRec   = document.getElementById('overlayRec');
+    const overlayTimer = document.getElementById('overlayTimer');
+    const overlaySkip  = document.getElementById('overlaySkip');
+    const overlayClose = document.getElementById('overlayClose');
+
+    // 표 초기화
+    (function initTable(){
+      const thead = table.createTHead();
+      const headRow = thead.insertRow();
+      times.forEach(t=>{
+        const th = document.createElement('th');
+        th.textContent = `${t}분`;
+        headRow.appendChild(th);
+      });
+      const tbody = table.createTBody();
+      const row = tbody.insertRow();
+      times.forEach((_,idx)=>{
+        const td = row.insertCell();
+        const sel = document.createElement('select');
+        sel.dataset.idx = idx;
+        [0,1,2,3].forEach(v=>{
+          const opt = document.createElement('option');
+          opt.value = v; opt.text = v;
+          sel.appendChild(opt);
+        });
+        sel.value = 0;
+        sel.addEventListener('change', updateChartFromTable);
+        td.appendChild(sel);
+      });
+    })();
+
+    // 차트 생성
+    const ctx = document.getElementById('behaviorChart').getContext('2d');
+    const chart = new Chart(ctx, {
+      type:'scatter',
+      data:{
+        datasets:[
+          {
+            label:'이전 기록',
+            data: prev? prev.map((v,i)=>({x:times[i],y:v})):[],
+            showLine:true, borderColor:'gray', backgroundColor:'gray', pointRadius:4
+          },
+          {
+            label:'현재 세션',
+            data: times.map(t=>({x:t,y:0})),
+            showLine:true, borderColor:'blue', backgroundColor:'blue', pointRadius:6,
+            dragData:true, dragX:false, dragDataRound:0, dragDataMin:0, dragDataMax:3,
+            pointBackgroundColor:ctx=>colorMap[ctx.raw.y],
+            pointBorderColor:ctx=>colorMap[ctx.raw.y]
+          }
+        ]
+      },
+      options:{
+        parsing:false,
+        scales:{
+          x:{ type:'linear', min:0, max:50, ticks:{stepSize:Δ} },
+          y:{
+            min:0, max:3,
+            ticks:{
+              stepSize:1,
+              callback:value=>labelMap[value],
+              color:ctx=>colorMap[ctx.tick.value]
+            }
+          }
+        },
+        plugins:{
+          legend:{ display:false },
+          dragData:{ round:0, showTooltip:true, onDragEnd:updateTableFromChart },
+          annotation:{ annotations:{} }
+        },
+        onClick(evt){
+          const pos = Chart.helpers.getRelativePosition(evt,chart);
+          const xv  = chart.scales.x.getValueForPixel(pos.x);
+          const yv  = chart.scales.y.getValueForPixel(pos.y);
+          const sx  = Math.round(xv/Δ)*Δ;
+          const sy  = Math.min(3,Math.max(0,Math.round(yv)));
+          const pt  = chart.data.datasets[1].data.find(p=>p.x===sx);
+          if(pt){ pt.y = sy; updateTableFromChart(); }
+        }
+      }
+    });
+
+    function updateChartFromTable(){
+      const ds = chart.data.datasets[1].data;
+      table.querySelectorAll('select').forEach(sel=>{
+        ds[+sel.dataset.idx].y = +sel.value;
+      });
+      chart.update();
+    }
+
+    function updateTableFromChart(){
+      chart.data.datasets[1].data.forEach(pt=>{
+        const sel = table.querySelector(`select[data-idx="${pt.x/Δ}"]`);
+        if(sel) sel.value = pt.y;
+      });
+      chart.update();
+    }
+
+    // ——— 핵심: 제안하신 공식 구현 함수 ———
+    function computeReinforcementTimes(scores, K, delta) {
+      const n = scores.length;
+      // 1) 인덱스 배열 [0..n-1]
+      const idxs = Array.from({length:n}, (_,i)=>i);
+      // 2) 내림차순 정렬(값 비교 → 동점 시 작은 인덱스 우선)
+      idxs.sort((a,b)=> scores[b] - scores[a] || a - b);
+      // 3) 상위 K개 인덱스
+      const H = idxs.slice(0, K);
+      // 4) (index * delta) 계산 & 오름차순 정렬
+      return H
+        .map(i => i * delta)
+        .sort((a,b)=> a - b);
+    }
+    // ——————————————————————————————
+
+    submitBtn.addEventListener('click', ()=>{
+      const vals = chart.data.datasets[1].data.map(p=>p.y);
+      if (Math.max(...vals) === 0) {
+        alert('문제행동을 입력해주세요.');
+        return;
+      }
+
+      // ▶ 기존 max+2 로직 대신, 공식 기반 계산
+      const reinforceTimes = computeReinforcementTimes(vals, K, Δ);
+
+      // 차트에 실선 표시
+      chart.options.plugins.annotation.annotations = {};
+      reinforceTimes.forEach((t,i)=>{
+        chart.options.plugins.annotation.annotations['line'+i] = {
+          type:'line',
+          scaleID:'x',
+          value:t,
+          borderColor:'green',
+          borderWidth:3
+        };
+      });
+      chart.update();
+
+      // 오버레이
+      overlayRec.textContent   = 
+        '추천 강화 타이밍: ' + reinforceTimes.map(t=>t+'분').join(', ');
+      overlayTimer.textContent = '';
+      overlaySkip.style.display  = 'inline-block';
+      overlayClose.style.display = 'none';
+      overlay.style.display      = 'block';
+
+      // 타이머 자동 실행
+      if (confirm('타이머를 실행할까요?')) {
+        startTimers(reinforceTimes);
+      }
+
+      // 이전 세션 저장
+      localStorage.setItem(
+        'previousBehavior',
+        JSON.stringify(vals)
+      );
+    });
+
+    function startTimers(timesArray){
+      let idx=0, iv;
+
+      function handleComplete(){
+        alert('시간이 완료되었습니다. 강화를 제공하십시오');
+        const decreased = confirm('행동 변화가 감소되었습니까?');
+        const fb = JSON.parse(localStorage.getItem('behaviorFeedback')||'[]');
+        fb.push({ time: timesArray[idx], decreased });
+        localStorage.setItem('behaviorFeedback', JSON.stringify(fb));
+        idx++;
+        nextSegment();
+      }
+
+      function nextSegment(){
+        if (idx >= timesArray.length) {
+          overlayTimer.textContent = '모든 강화 타이밍이 완료되었습니다.';
+          overlaySkip.style.display  = 'none';
+          overlayClose.style.display = 'inline-block';
+          clearInterval(iv);
+          return;
+        }
+
+        const prevTime = idx===0 ? 0 : timesArray[idx-1];
+        const duration = timesArray[idx] - prevTime;
+        const target   = Date.now() + duration*60000;
+
+        overlaySkip.style.display  = 'inline-block';
+        overlayClose.style.display = 'none';
+        overlaySkip.onclick = ()=>{
+          clearInterval(iv);
+          overlaySkip.style.display = 'none';
+          handleComplete();
+        };
+
+        clearInterval(iv);
+        iv = setInterval(()=>{
+          const diff = target - Date.now();
+          if (diff <= 0) {
+            clearInterval(iv);
+            overlaySkip.style.display = 'none';
+            handleComplete();
+          } else {
+            const m = Math.floor(diff/60000),
+                  s = Math.floor((diff%60000)/1000);
+            overlayTimer.textContent = `다음 강화까지: ${m}분 ${s}초`;
+          }
+        }, 500);
+      }
+
+      nextSegment();
+    }
+
+    overlayClose.addEventListener('click', ()=>{
+      overlay.style.display = 'none';
+    });
+  </script>
+</body>
+</html>
