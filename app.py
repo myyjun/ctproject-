@@ -47,7 +47,7 @@ pairs = [
     (
         "룰 기반 강화 타이밍 계산",
         lambda: components.html(html5, height=600, scrolling=True),
-        "룰 기반 전문가 시스템  \n  \n 기본 강화는 3번  \n  \n 문제행동 빈도&강도 심할 경우 강화 증가."
+        "룰 기반 전문가 시스템  \n  \n 기본 강화는 3번  \n  \n 문제행동 빈도&강도 심할 경우 4번."
     ),
 ]
 
